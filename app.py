@@ -6,9 +6,11 @@ import base64
 import io
 from datetime import datetime
 import json
+import requests
+from urllib.parse import quote
 
 # ==========================================
-# 1. CONFIGURATION DE LA PAGE
+# 1. CONFIGURATION
 # ==========================================
 st.set_page_config(
     page_title="IA CIC",
@@ -29,10 +31,7 @@ st.markdown("""
     #MainMenu, footer, header { visibility: hidden; }
 
     /* Sidebar */
-    section[data-testid="stSidebar"] > div {
-        background: #131722;
-        padding-top: 0;
-    }
+    section[data-testid="stSidebar"] > div { background: #131722; padding-top: 0; }
     [data-testid="stSidebar"] { border-right: 1px solid #1f2535; }
     [data-testid="stSidebar"] label {
         color: #6b7089 !important;
@@ -66,22 +65,28 @@ st.markdown("""
         box-shadow: 0 0 0 2px rgba(184,153,90,0.15) !important;
     }
 
-    /* File uploader — meme style que le text area */
+    /* Toggle */
+    [data-testid="stToggle"] label {
+        color: #ddd8ce !important;
+        font-size: 0.82rem !important;
+        text-transform: none !important;
+        letter-spacing: 0 !important;
+    }
+
+    /* File uploader */
     [data-testid="stFileUploader"] section {
         background: #1b2030 !important;
         border: 1px solid #252c3f !important;
         border-radius: 8px !important;
         padding: 12px !important;
     }
-    [data-testid="stFileUploader"] section:hover {
-        border-color: #b8995a !important;
-    }
+    [data-testid="stFileUploader"] section:hover { border-color: #b8995a !important; }
     [data-testid="stFileUploader"] span,
     [data-testid="stFileUploader"] p,
     [data-testid="stFileUploader"] small,
     [data-testid="stFileUploader"] div {
         color: #ddd8ce !important;
-        font-family: "DM Sans", sans-serif !important;
+        font-family: 'DM Sans', sans-serif !important;
         font-size: 0.82rem !important;
     }
     [data-testid="stFileUploader"] button {
@@ -92,10 +97,7 @@ st.markdown("""
         font-size: 0.8rem !important;
         width: auto !important;
     }
-    [data-testid="stFileUploader"] button:hover {
-        border-color: #b8995a !important;
-        color: #b8995a !important;
-    }
+    [data-testid="stFileUploader"] button:hover { border-color: #b8995a !important; color: #b8995a !important; }
 
     /* Buttons */
     .stButton > button {
@@ -108,11 +110,19 @@ st.markdown("""
         transition: all 0.2s ease !important;
         width: 100%;
     }
-    .stButton > button:hover {
-        border-color: #b8995a !important;
+    .stButton > button:hover { border-color: #b8995a !important; color: #b8995a !important; background: rgba(184,153,90,0.06) !important; }
+
+    /* Download button */
+    [data-testid="stDownloadButton"] button {
+        background: rgba(184,153,90,0.1) !important;
+        border: 1px solid #b8995a !important;
         color: #b8995a !important;
-        background: rgba(184,153,90,0.06) !important;
+        border-radius: 7px !important;
+        font-size: 0.8rem !important;
+        width: 100%;
+        transition: all 0.2s ease !important;
     }
+    [data-testid="stDownloadButton"] button:hover { background: rgba(184,153,90,0.2) !important; }
 
     /* Chat messages */
     [data-testid="stChatMessage"] {
@@ -132,7 +142,7 @@ st.markdown("""
     [data-testid="stChatMessage"] h3 { color: #f0ebe0 !important; }
     [data-testid="stChatMessage"] code { color: #b8995a !important; background: #1b2030 !important; }
 
-    /* Zone fixe bas — fond sombre */
+    /* Zone fixe bas */
     [data-testid="stBottom"],
     [data-testid="stBottom"] > div {
         background: #10131c !important;
@@ -157,13 +167,26 @@ st.markdown("""
         border-color: #b8995a !important;
         box-shadow: 0 0 0 3px rgba(184,153,90,0.18), 0 2px 12px rgba(0,0,0,0.25) !important;
     }
-    [data-testid="stChatInput"] button {
-        background: #b8995a !important;
-        border: none !important;
-        border-radius: 8px !important;
-        color: #10131c !important;
-    }
+    [data-testid="stChatInput"] button { background: #b8995a !important; border: none !important; border-radius: 8px !important; color: #10131c !important; }
     [data-testid="stChatInput"] button:hover { background: #caa96a !important; }
+
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        background: transparent;
+        gap: 4px;
+        border-bottom: 1px solid #1f2535;
+    }
+    .stTabs [data-baseweb="tab"] {
+        background: transparent !important;
+        color: #6b7089 !important;
+        border: none !important;
+        border-bottom: 2px solid transparent !important;
+        font-family: 'DM Sans', sans-serif !important;
+        font-size: 0.82rem !important;
+        padding: 8px 16px !important;
+        letter-spacing: 0.04em;
+    }
+    .stTabs [aria-selected="true"] { color: #b8995a !important; border-bottom: 2px solid #b8995a !important; }
 
     /* Scrollbar */
     ::-webkit-scrollbar { width: 4px; }
@@ -196,7 +219,7 @@ st.markdown("""
 
 
 # ==========================================
-# 3. MODELES
+# 3. MODELES CHAT
 # ==========================================
 MODELS = {
     "💡 Gemini 2.0 Flash Lite — Economique": {
@@ -225,59 +248,36 @@ TIER_STYLES = {
     "premium":  {"label": "PREMIUM",   "color": "#c06060"},
 }
 
+# Styles image generation
+IMAGE_STYLES = {
+    "Photoréaliste": "photorealistic, ultra detailed, 8k, professional photography",
+    "Illustration": "digital illustration, clean lines, vibrant colors, professional",
+    "Minimaliste": "minimalist, clean, simple, elegant, flat design",
+    "Cinématique": "cinematic, dramatic lighting, film still, wide angle",
+    "Aquarelle": "watercolor painting, soft colors, artistic, hand painted",
+}
+
 DEFAULT_SYSTEM = (
     "Tu es un assistant IA specialise en fusions-acquisitions (M&A), finance d entreprise et analyse strategique. "
     "Tu assistes un analyste M&A senior dans ses travaux quotidiens. "
-
     "LANGUE ET TON : "
     "Tu reponds en francais par defaut, sauf si on te parle dans une autre langue. "
     "Ton registre est professionnel, precis et direct. Tu vas droit au but, sans formules de politesse inutiles. "
     "Tu n inventes jamais une information : si tu n es pas certain, tu le signales explicitement. "
-
     "SOURCING ET RIGUEUR FACTUELLE : "
-    "Des qu un chiffre, une donnee de marche, un multiple boursier ou une information factuelle provient d une source externe "
-    "(internet, base de donnees, presse financiere), tu indiques la source entre parentheses immediatement apres : "
-    "ex. (Source : Bloomberg, avril 2025) ou (Source : Refinitiv, mars 2025). "
+    "Des qu un chiffre, une donnee de marche, un multiple boursier ou une information factuelle provient d une source externe, "
+    "tu indiques la source entre parentheses immediatement apres : ex. (Source : Bloomberg, avril 2025). "
     "Si tu n as pas acces a une donnee precise, tu le dis clairement et tu proposes une methodologie pour l obtenir. "
-
-    "TYPES DE TACHES ET METHODE : "
-
+    "TYPES DE TACHES : "
     "1. ACTUALITE ET VEILLE : resumes structures avec date, source et impact potentiel sur les transactions. "
-
-    "2. RECHERCHE D ACQUEREURS POTENTIELS : "
-    "- Classe les acquereurs par categorie (strategiques sectoriels, strategiques adjacents, fonds de PE, family offices). "
-    "- Pour chaque acquereur : nom, nationalite, rationale strategique, acquisitions recentes comparables, capacite financiere estimee. "
-    "- Fournis une liste exhaustive, pas seulement les acteurs evidents. "
-
-    "3. COMPARABLES BOURSIERS (trading comps) : "
-    "- Presente un tableau structure : Societe | Pays | Capitalisation | VE | EV/EBITDA LTM | EV/EBITDA NTM | EV/CA | P/E. "
-    "- Indique la date des donnees et la source (Bloomberg, FactSet, Refinitiv, Yahoo Finance, etc.). "
-    "- Signale les valeurs aberrantes et propose une fourchette de multiples retenus. "
-
-    "4. RELECTURE ET CORRECTION : "
-    "- Corrige les fautes d orthographe, de grammaire et de syntaxe. "
-    "- Ameliore la formulation si elle manque de precision ou de professionnalisme. "
-    "- Structure les idees si necessaire. "
-    "- Retourne le texte corrige avec les modifications clairement identifiees si demande. "
-
-    "5. ANALYSE DE DOCUMENTS (PDF, PPT, Word) : "
-    "- Identifie les points cles, les risques, les inconsistances et les donnees chiffrées. "
-    "- Formule des observations critiques comme le ferait un banquier d affaires senior. "
-
-    "6. ETUDES DE MARCHE : "
-    "- Structure en sections : taille du marche, croissance (TCAM), acteurs principaux, dynamiques concurrentielles, tendances. "
-    "- Source chaque chiffre. Distingue clairement les donnees confirmees des estimations. "
-
-    "FORMAT : "
-    "Utilise des titres, sous-titres et tableaux des que cela ameliore la lisibilite. "
-    "Pour les listes longues (acquereurs, comparables), utilise toujours un format tabulaire ou une liste structuree. "
-    "Termine chaque analyse complexe par une section 'Points cles a retenir' de 3 a 5 bullets maximum."
+    "2. RECHERCHE D ACQUEREURS : classe par categorie (strategiques, PE, family offices) avec rationale et acquisitions recentes. "
+    "3. COMPARABLES BOURSIERS : tableau structure Societe | Pays | Capi | VE | EV/EBITDA LTM | EV/EBITDA NTM | EV/CA | P/E avec source et date. "
+    "4. RELECTURE : corrige fautes et formulations, retourne le texte corrige avec modifications identifiees si demande. "
+    "5. ANALYSE DOCUMENTS : points cles, risques, inconsistances, regard critique niveau banquier senior. "
+    "6. ETUDES DE MARCHE : taille, TCAM, acteurs, tendances — chaque chiffre source. "
+    "FORMAT : utilise titres, sous-titres et tableaux. "
+    "Termine chaque analyse complexe par une section Points cles a retenir de 3 a 5 bullets maximum."
 )
-
-def get_system_with_date(base_prompt):
-    today = datetime.now().strftime("%A %d %B %Y")
-    date_inject = "Nous sommes le " + today + ". Tu as acces a internet et aux informations en temps reel. "
-    return date_inject + base_prompt
 
 
 # ==========================================
@@ -318,21 +318,46 @@ def build_messages(history, system_prompt):
     return msgs
 
 
+def get_system_with_date(base_prompt):
+    today = datetime.now().strftime("%A %d %B %Y")
+    return "Nous sommes le " + today + ". Tu as acces a internet et aux informations en temps reel. " + base_prompt
+
+
 def friendly_error(err):
     s = str(err)
     if "429" in s:
         return (
             "**Quota atteint sur ce modele.**\n\n"
-            "Solutions :\n"
             "- Patientez 30 secondes et reessayez\n"
             "- Changez de modele dans la sidebar\n"
             "- Verifiez votre solde sur openrouter.ai"
         )
     if "404" in s:
-        return "**Modele introuvable.** L ID a peut-etre change sur OpenRouter. Essayez un autre modele."
+        return "**Modele introuvable.** L ID a peut-etre change. Essayez un autre modele."
     if "401" in s or "403" in s:
-        return "**Erreur d authentification.** Verifiez votre cle API dans le fichier secrets.toml"
+        return "**Erreur d authentification.** Verifiez votre cle API dans secrets.toml"
     return "**Erreur API :** " + s
+
+
+def generate_image_pollinations(prompt_text, style_suffix, width=1024, height=1024):
+    """
+    Utilise Pollinations.ai — completement gratuit, sans cle API.
+    Retourne les bytes de l image.
+    """
+    full_prompt = prompt_text
+    if style_suffix:
+        full_prompt = prompt_text + ", " + style_suffix
+    encoded = quote(full_prompt)
+    url = (
+        "https://image.pollinations.ai/prompt/" + encoded
+        + "?width=" + str(width)
+        + "&height=" + str(height)
+        + "&nologo=true"
+        + "&enhance=true"
+    )
+    resp = requests.get(url, timeout=90)
+    resp.raise_for_status()
+    return resp.content, url
 
 
 # ==========================================
@@ -341,17 +366,14 @@ def friendly_error(err):
 def check_password():
     if st.session_state.get("authenticated"):
         return True
-
     st.markdown(
         "<div style='max-width:360px;margin:80px auto;text-align:center;'>"
         "<div style='font-family:\"Cormorant Garamond\",serif;font-size:2rem;color:#ddd8ce;font-weight:600;'>"
         "IA <span style='color:#b8995a;'>CIC</span></div>"
-        "<div style='font-size:0.72rem;color:#6b7089;letter-spacing:.14em;"
-        "text-transform:uppercase;margin-top:6px;margin-bottom:32px;'>"
-        "Acces collaborateurs</div></div>",
+        "<div style='font-size:0.72rem;color:#6b7089;letter-spacing:.14em;text-transform:uppercase;"
+        "margin-top:6px;margin-bottom:32px;'>Acces collaborateurs</div></div>",
         unsafe_allow_html=True
     )
-
     _, col, _ = st.columns([1, 2, 1])
     with col:
         pwd = st.text_input("pwd", type="password", label_visibility="collapsed", placeholder="Mot de passe...")
@@ -375,6 +397,10 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "system_prompt" not in st.session_state:
     st.session_state.system_prompt = DEFAULT_SYSTEM
+if "last_loaded_conv" not in st.session_state:
+    st.session_state.last_loaded_conv = None
+if "active_tab" not in st.session_state:
+    st.session_state.active_tab = "chat"
 
 
 # ==========================================
@@ -422,10 +448,8 @@ with st.sidebar:
 
     st.markdown("<div class='section-label'>Instructions systeme</div>", unsafe_allow_html=True)
     st.session_state.system_prompt = st.text_area(
-        "sys",
-        value=st.session_state.system_prompt,
-        height=110,
-        label_visibility="collapsed",
+        "sys", value=st.session_state.system_prompt,
+        height=110, label_visibility="collapsed",
         placeholder="Definir le comportement de l IA..."
     )
 
@@ -436,7 +460,7 @@ with st.sidebar:
     if web_search:
         st.markdown(
             "<div style='font-size:0.72rem;color:#5a9e7a;margin-top:2px;'>"
-            "🌐 Connectee a internet — date et actu en temps reel</div>",
+            "🌐 Connectee a internet — actu en temps reel</div>",
             unsafe_allow_html=True
         )
     else:
@@ -450,8 +474,7 @@ with st.sidebar:
 
     st.markdown("<div class='section-label'>Piece jointe</div>", unsafe_allow_html=True)
     uploaded_file = st.file_uploader(
-        "Fichier",
-        type=["pdf", "pptx", "png", "jpg", "jpeg", "webp"],
+        "Fichier", type=["pdf", "pptx", "png", "jpg", "jpeg", "webp"],
         label_visibility="collapsed"
     )
     if uploaded_file:
@@ -477,7 +500,7 @@ with st.sidebar:
 
     st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
 
-    # ── Sauvegarde conversation ──
+    # Sauvegarde
     if st.session_state.messages:
         conv_name = datetime.now().strftime("%Y-%m-%d_%H-%M")
         exportable = []
@@ -494,7 +517,6 @@ with st.sidebar:
             "system_prompt": st.session_state.system_prompt,
             "messages": exportable
         }, ensure_ascii=False, indent=2)
-
         st.download_button(
             label="💾  Sauvegarder la conversation",
             data=conv_json.encode("utf-8"),
@@ -505,82 +527,165 @@ with st.sidebar:
 
     st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
 
-    # ── Chargement conversation ──
     st.markdown("<div class='section-label'>Charger une conversation</div>", unsafe_allow_html=True)
     uploaded_conv = st.file_uploader(
-        "conv",
-        type=["json"],
-        label_visibility="collapsed",
-        key="conv_uploader"
+        "conv", type=["json"],
+        label_visibility="collapsed", key="conv_uploader"
     )
     if uploaded_conv is not None:
-        try:
-            conv_data = json.loads(uploaded_conv.read().decode("utf-8"))
-            restored = []
-            for msg in conv_data.get("messages", []):
-                restored.append({
-                    "role": msg["role"],
-                    "display_content": msg["display_content"],
-                    "api_content": msg["api_content"]
-                })
-            st.session_state.messages = restored
-            if conv_data.get("system_prompt"):
-                st.session_state.system_prompt = conv_data["system_prompt"]
-            st.success("Conversation chargee : " + conv_data.get("name", ""))
-            st.rerun()
-        except Exception as e:
-            st.error("Erreur de chargement : " + str(e))
+        file_id = uploaded_conv.name + "_" + str(uploaded_conv.size)
+        if st.session_state.last_loaded_conv != file_id:
+            try:
+                conv_data = json.loads(uploaded_conv.read().decode("utf-8"))
+                restored = []
+                for msg in conv_data.get("messages", []):
+                    restored.append({
+                        "role": msg["role"],
+                        "display_content": msg["display_content"],
+                        "api_content": msg["api_content"]
+                    })
+                st.session_state.messages = restored
+                if conv_data.get("system_prompt"):
+                    st.session_state.system_prompt = conv_data["system_prompt"]
+                st.session_state.last_loaded_conv = file_id
+                st.success("Conversation restauree : " + conv_data.get("name", ""))
+            except Exception as e:
+                st.error("Erreur de chargement : " + str(e))
 
     st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
 
     if st.button("🗑  Nouvelle conversation"):
         st.session_state.messages = []
+        st.session_state.last_loaded_conv = None
         st.rerun()
 
 
 # ==========================================
-# 9. EN-TETE
+# 9. ZONE PRINCIPALE
 # ==========================================
-model_short = selected.split("—")[0].strip()
-st.markdown(
-    "<div class='chat-header'>"
-    "<div class='chat-title'>Intelligence <span>Artificielle</span></div>"
-    "<div class='chat-meta'>Modele : " + model_short +
-    " &nbsp;·&nbsp; " + str(len(st.session_state.messages)) + " messages</div>"
-    "</div>",
-    unsafe_allow_html=True
-)
+tab_chat, tab_image = st.tabs(["💬  Chat", "🎨  Generateur d image"])
 
 
 # ==========================================
-# 10. ECRAN D'ACCUEIL
+# TAB 1 — CHAT (affichage uniquement)
 # ==========================================
-if not st.session_state.messages:
+with tab_chat:
+    model_short = selected.split("—")[0].strip()
     st.markdown(
-        "<div class='welcome-box'>"
-        "<h3>Bienvenue sur votre espace IA</h3>"
-        "<p>Posez vos questions, analysez vos documents, redigez ou explorez des idees. "
-        "Choisissez le modele adapte dans le panneau lateral.</p>"
-        "<div class='capability-grid'>"
-        "<div class='capability-item'><span class='icon'>📄</span>Analyse PDF et PowerPoint</div>"
-        "<div class='capability-item'><span class='icon'>🖼️</span>Lecture d images et captures</div>"
-        "<div class='capability-item'><span class='icon'>🔍</span>Etudes de marche et recherches</div>"
-        "<div class='capability-item'><span class='icon'>✍️</span>Redaction et synthese</div>"
-        "</div></div>",
+        "<div class='chat-header'>"
+        "<div class='chat-title'>Intelligence <span>Artificielle</span></div>"
+        "<div class='chat-meta'>Modele : " + model_short +
+        " &nbsp;·&nbsp; " + str(len(st.session_state.messages)) + " messages</div>"
+        "</div>",
         unsafe_allow_html=True
     )
 
+    if not st.session_state.messages:
+        st.markdown(
+            "<div class='welcome-box'>"
+            "<h3>Bienvenue sur votre espace IA</h3>"
+            "<p>Posez vos questions, analysez vos documents, redigez ou explorez des idees. "
+            "Choisissez le modele adapte dans le panneau lateral.</p>"
+            "<div class='capability-grid'>"
+            "<div class='capability-item'><span class='icon'>📄</span>Analyse PDF et PowerPoint</div>"
+            "<div class='capability-item'><span class='icon'>🖼️</span>Lecture d images et captures</div>"
+            "<div class='capability-item'><span class='icon'>🔍</span>Etudes de marche et recherches</div>"
+            "<div class='capability-item'><span class='icon'>✍️</span>Redaction et synthese</div>"
+            "</div></div>",
+            unsafe_allow_html=True
+        )
+
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["display_content"])
+
 
 # ==========================================
-# 11. HISTORIQUE
+# TAB 2 — GENERATEUR D'IMAGE
 # ==========================================
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["display_content"])
+with tab_image:
+    st.markdown(
+        "<div class='chat-header'>"
+        "<div class='chat-title'>Generateur d <span>Images</span></div>"
+        "<div class='chat-meta'>Creez des visuels a partir d une description — gratuit, sans limite</div>"
+        "</div>",
+        unsafe_allow_html=True
+    )
+
+    col_left, col_right = st.columns([1, 1], gap="large")
+
+    with col_left:
+        st.markdown("<div class='section-label'>Style</div>", unsafe_allow_html=True)
+        selected_style = st.selectbox(
+            "style", list(IMAGE_STYLES.keys()),
+            label_visibility="collapsed"
+        )
+
+        st.markdown("<div class='section-label' style='margin-top:14px;'>Format</div>", unsafe_allow_html=True)
+        format_choice = st.selectbox(
+            "format", ["Carre (1024x1024)", "Paysage (1280x720)", "Portrait (720x1280)"],
+            label_visibility="collapsed"
+        )
+        size_map = {
+            "Carre (1024x1024)": (1024, 1024),
+            "Paysage (1280x720)": (1280, 720),
+            "Portrait (720x1280)": (720, 1280),
+        }
+        img_w, img_h = size_map[format_choice]
+
+        st.markdown("<div class='section-label' style='margin-top:14px;'>Description</div>", unsafe_allow_html=True)
+        img_prompt = st.text_area(
+            "img_prompt", height=140,
+            label_visibility="collapsed",
+            placeholder="Ex : Vue aerienne d une ville europeenne de nuit, architecture haussmannienne, lumières dorées..."
+        )
+        st.markdown(
+            "<div style='font-size:0.72rem;color:#6b7089;margin-bottom:14px;line-height:1.6;'>"
+            "💡 Plus votre description est precise (style, couleurs, cadrage, ambiance), meilleur sera le resultat."
+            "</div>",
+            unsafe_allow_html=True
+        )
+        generate_btn = st.button("✦  Generer l image", use_container_width=True)
+
+    with col_right:
+        st.markdown("<div class='section-label'>Resultat</div>", unsafe_allow_html=True)
+
+        if generate_btn:
+            if not img_prompt.strip():
+                st.warning("Veuillez entrer une description.")
+            else:
+                with st.spinner("Generation en cours... (5 a 15 secondes)"):
+                    try:
+                        style_suffix = IMAGE_STYLES[selected_style]
+                        img_bytes, img_url = generate_image_pollinations(
+                            img_prompt, style_suffix, img_w, img_h
+                        )
+                        st.image(img_bytes, use_container_width=True)
+                        st.download_button(
+                            label="⬇️  Telecharger l image",
+                            data=img_bytes,
+                            file_name="image_cic_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".png",
+                            mime="image/png",
+                            use_container_width=True
+                        )
+                        st.markdown(
+                            "<div style='font-size:0.7rem;color:#4a5270;margin-top:6px;'>Genere via Pollinations.ai</div>",
+                            unsafe_allow_html=True
+                        )
+                    except Exception as e:
+                        st.error("Erreur generation image : " + str(e))
+        else:
+            st.markdown(
+                "<div style='background:#1b2030;border:1px dashed #252c3f;border-radius:10px;"
+                "height:320px;display:flex;align-items:center;justify-content:center;"
+                "color:#3a4060;font-size:2rem;'>✦</div>",
+                unsafe_allow_html=True
+            )
 
 
 # ==========================================
-# 12. SAISIE ET REPONSE
+# 10. CHAT INPUT — EN DEHORS DES ONGLETS
+# pour qu il reste colle en bas de page
 # ==========================================
 if prompt := st.chat_input("Posez votre question..."):
 
@@ -615,38 +720,39 @@ if prompt := st.chat_input("Posez votre question..."):
         "api_content": api_content,
         "display_content": display_content,
     })
-    with st.chat_message("user"):
-        st.markdown(display_content)
 
-    with st.chat_message("assistant"):
-        placeholder = st.empty()
-        full_response = ""
+    # On force le retour sur l onglet chat pour voir la reponse
+    with tab_chat:
+        with st.chat_message("user"):
+            st.markdown(display_content)
 
-        try:
-            system_with_date = get_system_with_date(st.session_state.system_prompt)
-            api_messages = build_messages(st.session_state.messages, system_with_date)
+        with st.chat_message("assistant"):
+            placeholder = st.empty()
+            full_response = ""
 
-            extra = {}
-            if web_search:
-                extra["plugins"] = [{"id": "web"}]
+            try:
+                system_with_date = get_system_with_date(st.session_state.system_prompt)
+                api_messages = build_messages(st.session_state.messages, system_with_date)
+                extra = {}
+                if web_search:
+                    extra["plugins"] = [{"id": "web"}]
+                stream = client.chat.completions.create(
+                    model=m["id"],
+                    messages=api_messages,
+                    stream=True,
+                    max_tokens=8192,
+                    extra_body=extra if extra else None,
+                )
+                for chunk in stream:
+                    delta = chunk.choices[0].delta
+                    if delta and delta.content:
+                        full_response += delta.content
+                        placeholder.markdown(full_response + "▌")
+                placeholder.markdown(full_response)
 
-            stream = client.chat.completions.create(
-                model=m["id"],
-                messages=api_messages,
-                stream=True,
-                max_tokens=9999,
-                extra_body=extra if extra else None,
-            )
-            for chunk in stream:
-                delta = chunk.choices[0].delta
-                if delta and delta.content:
-                    full_response += delta.content
-                    placeholder.markdown(full_response + "▌")
-            placeholder.markdown(full_response)
-
-        except Exception as e:
-            full_response = friendly_error(e)
-            placeholder.warning(full_response)
+            except Exception as e:
+                full_response = friendly_error(e)
+                placeholder.warning(full_response)
 
     st.session_state.messages.append({
         "role": "assistant",
